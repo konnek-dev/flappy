@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Flappy Bird - Vanilla JS</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #111;
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        canvas {
+            display: block;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+    /**
+     * InputHandler Class
+     * Menangani semua input dari keyboard, mouse, dan touch screen
+     */
+    class InputHandler {
+        constructor(onAction) {
+            this.onAction = onAction;
+
+            // Event listener keyboard (Space)
+            window.addEventListener('keydown', (e) => {
+                if (e.code === 'Space') {
+                    e.preventDefault();
+                    this.onAction();
+                }
+            });
+
+            // Event listener mouse click
+            window.addEventListener('mousedown', (e) => {
+                if (e.button === 0) { // Klik kiri
+                    this.onAction();
+                }
+            });
+
+            // Event listener touch screen
+            window.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // Mencegah zoom / scroll
+                this.onAction();
+            }, { passive: false });
+        }
+    }
+
+    /**
+     * Particle Class
+     * Partikel visual ketika burung mengepakkan sayap
+     */
+    class Particle {
+        constructor() {
+            this.x = 0;
+            this.y = 0;
+            this.vx = 0;
+            this.vy = 0;
+            this.radius = 0;
+            this.alpha = 1;
+            this.life = 0;
+            this.maxLife = 0;
+            this.active = false;
+        }
+
+        // Inisialisasi/reset partikel dari Object Pool
+        spawn(x, y) {
+            this.x = x;
+            this.y = y;
+            this.vx = (Math.random() - 0.5) * 2 - 1.5; // Bergerak agak ke belakang
+            this.vy = (Math.random() - 0.5) * 2 + 1;  // Sedikit menyebar ke atas/bawah
+            this.radius = Math.random() * 3 + 2;
+            this.alpha = 1;
+            this.maxLife = Math.random() * 20 + 15;
+            this.life = this.maxLife;
+            this.active = true;
+        }
+
+        update() {
+            if (!this.active) return;
+
+            this.x += this.vx;
+            this.y += this.vy;
+            this.life--;
+            this.alpha = this.life / this.maxLife;
+
+            if (this.life <= 0) {
+                this.active = false;
+            }
+        }
+
+        draw(ctx) {
+            if (!this.active) return;
+
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, this.alpha);
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+
+    /**
+     * Bird Class
+     * Mengelola status, pergerakan, dan gambar objek Burung
+     */
+    class Bird {
+        constructor(x, y) {
+            this.startX = x;
+            this.startY = y;
+            this.x = x;
+            this.y = y;
+            this.radius = 16;
+            this.velocity = 0;
+            this.gravity = 0.45;
+            this.jumpStrength = -7.5;
+            this.rotation = 0;
+
+            // Animasi sayap
+            this.wingAngle = 0;
+            this.wingSpeed = 0.25;
+            this.isFlapping = false;
+        }
+
+        reset() {
+            this.x = this.startX;
+            this.y = this.startY;
+            this.velocity = 0;
+            this.rotation = 0;
+            this.wingAngle = 0;
+        }
+
+        jump() {
+            this.velocity = this.jumpStrength;
+            this.isFlapping = true;
+        }
+
+        update() {
+            // Terapkan gravitasi
+            this.velocity += this.gravity;
+            this.y += this.velocity;
+
+            // Rotasi berdasarkan kecepatan jatuh/naik
+            if (this.velocity < 0) {
+                this.rotation = Math.max(-0.4, this.velocity * 0.05);
+            } else {
+                this.rotation = Math.min(Math.PI / 2, this.rotation + 0.05);
+            }
+
+            // Animasi mengepak sayap
+            this.wingAngle += this.wingSpeed;
+        }
+
+        draw(ctx) {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.rotation);
+
+            // 1. Badan Kucing (Oranye)
+            ctx.beginPath();
+            ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+            let gradient = ctx.createRadialGradient(-3, -3, 2, 0, 0, this.radius);
+            gradient.addColorStop(0, '#ffaf40');
+            gradient.addColorStop(1, '#ff9f1a');
+            ctx.fillStyle = gradient;
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#2c3e50';
+            ctx.stroke();
+
+            // 2. Telinga Kucing (Kiri & Kanan)
+            ctx.fillStyle = '#ff9f1a';
+            // Telinga Kiri
+            ctx.beginPath();
+            ctx.moveTo(-12, -10);
+            ctx.lineTo(-6, -22);
+            ctx.lineTo(0, -14);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            // Dalam Telinga Kiri
+            ctx.fillStyle = '#fffa65';
+            ctx.beginPath();
+            ctx.moveTo(-10, -11);
+            ctx.lineTo(-6, -19);
+            ctx.lineTo(-2, -14);
+            ctx.closePath();
+            ctx.fill();
+
+            // Telinga Kanan
+            ctx.fillStyle = '#ff9f1a';
+            ctx.beginPath();
+            ctx.moveTo(0, -14);
+            ctx.lineTo(6, -22);
+            ctx.lineTo(12, -10);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            // Dalam Telinga Kanan
+            ctx.fillStyle = '#fffa65';
+            ctx.beginPath();
+            ctx.moveTo(2, -14);
+            ctx.lineTo(6, -19);
+            ctx.lineTo(10, -11);
+            ctx.closePath();
+            ctx.fill();
+
+            // 3. Mata (Kiri & Kanan)
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(4, -3, 4, 0, Math.PI * 2);
+            ctx.arc(12, -3, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#000000';
+            ctx.beginPath();
+            ctx.arc(5, -3, 2, 0, Math.PI * 2);
+            ctx.arc(13, -3, 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 4. Hidung & Mulut
+            ctx.fillStyle = '#ff4d4d';
+            ctx.beginPath();
+            ctx.arc(9, 2, 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Kumis
+            ctx.strokeStyle = '#2c3e50';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            // Kiri
+            ctx.moveTo(3, 2); ctx.lineTo(-4, 0);
+            ctx.moveTo(3, 4); ctx.lineTo(-4, 5);
+            // Kanan
+            ctx.moveTo(15, 2); ctx.lineTo(22, 0);
+            ctx.moveTo(15, 4); ctx.lineTo(22, 5);
+            ctx.stroke();
+
+            // 5. Ekor Kucing (Animasi bergerak)
+            let tailOffsetY = Math.sin(this.wingAngle) * 6;
+            ctx.strokeStyle = '#ff9f1a';
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.moveTo(-14, 2);
+            ctx.quadraticCurveTo(-22, -4 + tailOffsetY, -24, 6 + tailOffsetY);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+    }
+
+    /**
+     * Pipe Class
+     * Mengelola rintangan pipa atas dan bawah
+     */
+    class Pipe {
+        constructor(x, canvasHeight, gapSize, minHeight = 50) {
+            this.x = x;
+            this.width = 60;
+            this.gap = gapSize;
+            this.passed = false;
+            this.highlightCapHeight = 24;
+
+            // Menentukan tinggi pipa atas secara acak
+            let maxPipeHeight = canvasHeight - this.gap - minHeight - 100; // 100px untuk tanah
+            this.topHeight = Math.floor(Math.random() * (maxPipeHeight - minHeight + 1)) + minHeight;
+            this.bottomY = this.topHeight + this.gap;
+            this.bottomHeight = canvasHeight - this.bottomY - 80; // offset tanah
+        }
+
+        update(speed) {
+            this.x -= speed;
+        }
+
+        draw(ctx, canvasHeight) {
+            // Pipa Atas
+            this.drawSinglePipe(ctx, this.x, 0, this.width, this.topHeight, true);
+
+            // Pipa Bawah
+            let bHeight = canvasHeight - 80 - this.bottomY;
+            this.drawSinglePipe(ctx, this.x, this.bottomY, this.width, bHeight, false);
+        }
+
+        drawSinglePipe(ctx, x, y, width, height, isTop) {
+            if (height <= 0) return;
+
+            ctx.save();
+
+            // Kabel LAN (Biru Khas RJ45/Cat6)
+            let cableGradient = ctx.createLinearGradient(x, 0, x + width, 0);
+            cableGradient.addColorStop(0, '#1e3799');
+            cableGradient.addColorStop(0.3, '#4a69bd');
+            cableGradient.addColorStop(0.7, '#1e3799');
+            cableGradient.addColorStop(1, '#0c2461');
+
+            ctx.fillStyle = cableGradient;
+            ctx.strokeStyle = '#0a3d62';
+            ctx.lineWidth = 2;
+
+            // Batang Kabel Utama
+            ctx.fillRect(x + 10, y, width - 20, height);
+            ctx.strokeRect(x + 10, y, width - 20, height);
+
+            // Garis detail urutan kabel twisted pair di dalam kabel
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+            ctx.lineWidth = 2;
+            for (let i = y + 5; i < y + height - 5; i += 12) {
+                ctx.beginPath();
+                ctx.moveTo(x + 14, i);
+                ctx.lineTo(x + width - 14, i + 6);
+                ctx.stroke();
+            }
+
+            // Konektor RJ45 di Ujung Kabel
+            let connectorY = isTop ? y + height - 30 : y;
+            let connectorWidth = width;
+            let connectorX = x;
+            let connectorHeight = 30;
+
+            // Kepala Transparan / Plastik RJ45
+            ctx.fillStyle = 'rgba(236, 240, 241, 0.9)';
+            ctx.strokeStyle = '#7f8c8d';
+            ctx.lineWidth = 2;
+            ctx.fillRect(connectorX, connectorY, connectorWidth, connectorHeight);
+            ctx.strokeRect(connectorX, connectorY, connectorWidth, connectorHeight);
+
+            // Pin Tembaga Emas (Gold Pins RJ45)
+            ctx.fillStyle = '#f1c40f';
+            let pinY = isTop ? connectorY + connectorHeight - 8 : connectorY + 2;
+            for (let p = connectorX + 6; p < connectorX + connectorWidth - 6; p += 6) {
+                ctx.fillRect(p, pinY, 4, 6);
+            }
+
+            // Pengunci Plastik (Clip RJ45)
+            ctx.fillStyle = '#bdc3c7';
+            let clipX = connectorX + connectorWidth / 2 - 5;
+            let clipY = isTop ? connectorY - 8 : connectorY + connectorHeight;
+            ctx.fillRect(clipX, clipY, 10, 8);
+            ctx.strokeRect(clipX, clipY, 10, 8);
+
+            ctx.restore();
+        }
+
+        isOffscreen() {
+            return this.x + this.width < -10;
+        }
+    }
+
+    /**
+     * Game Class
+     * Main Controller untuk mengelola loop permainan, state, canvas, dan render
+     */
+    class Game {
+        constructor() {
+            this.canvas = document.getElementById('gameCanvas');
+            this.ctx = this.canvas.getContext('2d');
+
+            // Virtual Internal Resolution
+            this.width = 400;
+            this.height = 600;
+
+            // Responsive Resize
+            this.resize();
+            window.addEventListener('resize', () => this.resize());
+
+            // Game States: 'START', 'PLAYING', 'GAMEOVER'
+            this.state = 'START';
+
+            // Game Values
+            this.score = 0;
+            this.highScore = parseInt(localStorage.getItem('fb_high_score')) || 0;
+            this.baseSpeed = 2.5;
+            this.speed = this.baseSpeed;
+            this.gapSize = 130;
+            this.pipeSpawnTimer = 0;
+            this.pipeInterval = 100; // Frame interval untuk pipa baru
+
+            // Hit Flash Effect
+            this.flashAlpha = 0;
+
+            // Background Parallax
+            this.groundX = 0;
+            this.clouds = [
+                { x: 50, y: 80, scale: 0.8, speed: 0.3 },
+                { x: 220, y: 130, scale: 1.2, speed: 0.5 },
+                { x: 350, y: 60, scale: 0.6, speed: 0.2 }
+            ];
+
+            // Inisialisasi Objek Game
+            this.bird = new Bird(80, this.height / 2 - 30);
+            this.pipes = [];
+
+            // Object Pooling Partikel
+            this.particlePool = [];
+            this.maxParticles = 50;
+            for (let i = 0; i < this.maxParticles; i++) {
+                this.particlePool.push(new Particle());
+            }
+
+            // Input Handler
+            this.input = new InputHandler(() => this.handleInput());
+
+            // Start Game Loop
+            this.lastTime = 0;
+            this.loop = this.loop.bind(this);
+            requestAnimationFrame(this.loop);
+        }
+
+        resize() {
+            // Menjaga aspect ratio 2:3 dan muat di layar browser
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
+
+            let canvasWidth = windowWidth;
+            let canvasHeight = windowWidth * (this.height / this.width);
+
+            if (canvasHeight > windowHeight) {
+                canvasHeight = windowHeight;
+                canvasWidth = windowHeight * (this.width / this.height);
+            }
+
+            this.canvas.style.width = `${canvasWidth}px`;
+            this.canvas.style.height = `${canvasHeight}px`;
+
+            // Canvas Internal resolution
+            this.canvas.width = this.width;
+            this.canvas.height = this.height;
+        }
+
+        spawnParticle(x, y) {
+            // Ambil partikel mati pertama dari pool
+            for (let p of this.particlePool) {
+                if (!p.active) {
+                    p.spawn(x, y);
+                    break;
+                }
+            }
+        }
+
+        handleInput() {
+            if (this.state === 'START') {
+                this.state = 'PLAYING';
+                this.bird.jump();
+                this.createParticlesOnFlap();
+            } else if (this.state === 'PLAYING') {
+                this.bird.jump();
+                this.createParticlesOnFlap();
+            } else if (this.state === 'GAMEOVER') {
+                this.resetGame();
+            }
+        }
+
+        createParticlesOnFlap() {
+            for (let i = 0; i < 5; i++) {
+                this.spawnParticle(this.bird.x - 10, this.bird.y + 5);
+            }
+        }
+
+        resetGame() {
+            this.score = 0;
+            this.speed = this.baseSpeed;
+            this.pipes = [];
+            this.bird.reset();
+            this.pipeSpawnTimer = 0;
+            this.flashAlpha = 0;
+            this.state = 'START';
+        }
+
+        triggerGameOver() {
+            this.state = 'GAMEOVER';
+            this.flashAlpha = 1.0; // Pemicu efek flash saat tabrakan
+
+            // Update High Score
+            if (this.score > this.highScore) {
+                this.highScore = this.score;
+                localStorage.setItem('fb_high_score', this.highScore);
+            }
+        }
+
+        // Collision Detection: Circle (Bird) vs Axis-Aligned Bounding Box (Pipe)
+        checkCollision() {
+            // Tabrakan dengan Tanah / Langit
+            let groundY = this.height - 80;
+            if (this.bird.y + this.bird.radius >= groundY || this.bird.y - this.bird.radius <= 0) {
+                return true;
+            }
+
+            // Tabrakan dengan Pipa
+            for (let pipe of this.pipes) {
+                // Bounds Pipa Atas
+                if (this.circleRectIntersect(this.bird.x, this.bird.y, this.bird.radius, pipe.x, 0, pipe.width, pipe.topHeight)) {
+                    return true;
+                }
+                // Bounds Pipa Bawah
+                if (this.circleRectIntersect(this.bird.x, this.bird.y, this.bird.radius, pipe.x, pipe.bottomY, pipe.width, this.height - pipe.bottomY - 80)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        circleRectIntersect(cx, cy, radius, rx, ry, rw, rh) {
+            let closestX = Math.max(rx, Math.min(cx, rx + rw));
+            let closestY = Math.max(ry, Math.min(cy, ry + rh));
+
+            let distX = cx - closestX;
+            let distY = cy - closestY;
+
+            return (distX * distX + distY * distY) < (radius * radius);
+        }
+
+        update() {
+            // Smooth background clouds update
+            for (let cloud of this.clouds) {
+                cloud.x -= cloud.speed;
+                if (cloud.x + 100 < 0) {
+                    cloud.x = this.width + 50;
+                }
+            }
+
+            // Ground movement
+            if (this.state !== 'GAMEOVER') {
+                this.groundX = (this.groundX - this.speed) % 20;
+            }
+
+            // Partikel update
+            for (let p of this.particlePool) {
+                p.update();
+            }
+
+            // Flash effect decay
+            if (this.flashAlpha > 0) {
+                this.flashAlpha -= 0.08;
+                if (this.flashAlpha < 0) this.flashAlpha = 0;
+            }
+
+            if (this.state === 'START') {
+                // Burung melayang lembut di layar start
+                this.bird.wingAngle += 0.15;
+                this.bird.y = (this.height / 2 - 30) + Math.sin(Date.now() * 0.005) * 8;
+            } else if (this.state === 'PLAYING') {
+                this.bird.update();
+
+                // Increment kecepatan permainan perlahan berdasarkan skor
+                this.speed = this.baseSpeed + Math.floor(this.score / 5) * 0.3;
+
+                // Spawn Pipes
+                this.pipeSpawnTimer++;
+                if (this.pipeSpawnTimer >= this.pipeInterval) {
+                    this.pipes.push(new Pipe(this.width, this.height, this.gapSize));
+                    this.pipeSpawnTimer = 0;
+                }
+
+                // Update Pipes & Scoring
+                for (let i = this.pipes.length - 1; i >= 0; i--) {
+                    let pipe = this.pipes[i];
+                    pipe.update(this.speed);
+
+                    // Cek Penambahan Skor
+                    if (!pipe.passed && pipe.x + pipe.width < this.bird.x) {
+                        pipe.passed = true;
+                        this.score++;
+                    }
+
+                    // Hapus pipa yang sudah tidak terlihat
+                    if (pipe.isOffscreen()) {
+                        this.pipes.splice(i, 1);
+                    }
+                }
+
+                // Cek Tabrakan
+                if (this.checkCollision()) {
+                    this.triggerGameOver();
+                }
+            }
+        }
+
+        drawSky() {
+            let gradient = this.ctx.createLinearGradient(0, 0, 0, this.height - 80);
+            gradient.addColorStop(0, '#4facfe');
+            gradient.addColorStop(1, '#00f2fe');
+            this.ctx.fillStyle = gradient;
+            this.ctx.fillRect(0, 0, this.width, this.height - 80);
+        }
+
+        drawClouds() {
+            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+            for (let cloud of this.clouds) {
+                this.ctx.save();
+                this.ctx.translate(cloud.x, cloud.y);
+                this.ctx.scale(cloud.scale, cloud.scale);
+                this.ctx.beginPath();
+                this.ctx.arc(0, 0, 20, 0, Math.PI * 2);
+                this.ctx.arc(15, -10, 22, 0, Math.PI * 2);
+                this.ctx.arc(35, 0, 18, 0, Math.PI * 2);
+                this.ctx.fill();
+                this.ctx.restore();
+            }
+        }
+
+        drawGround() {
+            let groundY = this.height - 80;
+
+            // Tanah (Cokelat)
+            this.ctx.fillStyle = '#d35400';
+            this.ctx.fillRect(0, groundY, this.width, 80);
+
+            // Rumput (Hijau)
+            this.ctx.fillStyle = '#27ae60';
+            this.ctx.fillRect(0, groundY, this.width, 16);
+
+            // Garis pembatas rumput
+            this.ctx.fillStyle = '#2ecc71';
+            this.ctx.fillRect(0, groundY, this.width, 4);
+
+            // Pola garis bergerak pada tanah
+            this.ctx.strokeStyle = '#e67e22';
+            this.ctx.lineWidth = 3;
+            for (let x = this.groundX - 20; x < this.width + 20; x += 20) {
+                this.ctx.beginPath();
+                this.ctx.moveTo(x, groundY + 16);
+                this.ctx.lineTo(x - 10, this.height);
+                this.ctx.stroke();
+            }
+        }
+
+        drawUI() {
+            this.ctx.save();
+            this.ctx.textAlign = 'center';
+
+            if (this.state === 'START') {
+                // Judul Game
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = 'bold 36px sans-serif';
+                this.ctx.strokeStyle = '#000000';
+                this.ctx.lineWidth = 5;
+                this.ctx.strokeText('FLAPPY CAT', this.width / 2, 180);
+                this.ctx.fillText('FLAPPY CAT', this.width / 2, 180);
+
+                // Petunjuk
+                this.ctx.font = 'bold 18px sans-serif';
+                this.ctx.lineWidth = 3;
+                let text = 'Tekan Space / Klik untuk Terbang';
+                this.ctx.strokeText(text, this.width / 2, 380);
+                this.ctx.fillText(text, this.width / 2, 380);
+
+            } else if (this.state === 'PLAYING') {
+                // Skor Saat Ini
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = 'bold 42px sans-serif';
+                this.ctx.strokeStyle = '#000000';
+                this.ctx.lineWidth = 5;
+                this.ctx.strokeText(this.score, this.width / 2, 70);
+                this.ctx.fillText(this.score, this.width / 2, 70);
+
+            } else if (this.state === 'GAMEOVER') {
+                // Panel Game Over
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                this.ctx.fillRect(0, 0, this.width, this.height);
+
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = 'bold 36px sans-serif';
+                this.ctx.strokeStyle = '#e74c3c';
+                this.ctx.lineWidth = 5;
+                this.ctx.strokeText('GAME OVER', this.width / 2, 200);
+                this.ctx.fillText('GAME OVER', this.width / 2, 200);
+
+                // Kotak Skor
+                this.ctx.fillStyle = '#f39c12';
+                this.ctx.lineWidth = 3;
+                this.ctx.strokeStyle = '#d35400';
+                this.ctx.fillRect(this.width / 2 - 100, 240, 200, 120);
+                this.ctx.strokeRect(this.width / 2 - 100, 240, 200, 120);
+
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = '20px sans-serif';
+                this.ctx.fillText(`Skor: ${this.score}`, this.width / 2, 280);
+                this.ctx.fillText(`High Score: ${this.highScore}`, this.width / 2, 320);
+
+                // Tombol Restart
+                this.ctx.font = 'bold 16px sans-serif';
+                this.ctx.strokeStyle = '#000000';
+                this.ctx.lineWidth = 3;
+                let restartText = 'Tekan Space / Klik untuk Main Lagi';
+                this.ctx.strokeText(restartText, this.width / 2, 410);
+                this.ctx.fillText(restartText, this.width / 2, 410);
+            }
+
+            this.ctx.restore();
+        }
+
+        draw() {
+            // Clear & Gambar Latar Belakang
+            this.drawSky();
+            this.drawClouds();
+
+            // Gambar Pipa
+            for (let pipe of this.pipes) {
+                pipe.draw(this.ctx, this.height);
+            }
+
+            // Gambar Partikel
+            for (let p of this.particlePool) {
+                p.draw(this.ctx);
+            }
+
+            // Gambar Tanah & Burung
+            this.drawGround();
+            this.bird.draw(this.ctx);
+
+            // Gambar UI (Skor & Overlay)
+            this.drawUI();
+
+            // Render Hit Flash Effect
+            if (this.flashAlpha > 0) {
+                this.ctx.fillStyle = `rgba(255, 255, 255, ${this.flashAlpha})`;
+                this.ctx.fillRect(0, 0, this.width, this.height);
+            }
+        }
+
+        loop(timestamp) {
+            this.update();
+            this.draw();
+            requestAnimationFrame(this.loop);
+        }
+    }
+
+    // Jalankan Game setelah DOM dimuat
+    window.addEventListener('DOMContentLoaded', () => {
+        new Game();
+    });
+    </script>
+</body>
+</html>
